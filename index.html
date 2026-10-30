@@ -175,7 +175,7 @@
   .card ol { margin: 8px 0 14px; padding-left: 20px; color: var(--ink-soft); }
   .card input[type=text] { width: 100%; font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 10px; }
   .card .err { color: #b91c1c; font-size: 12px; margin-bottom: 8px; display: none; }
-  .keybar { position: absolute; top: 10px; left: 10px; z-index: 4; }
+  .keybar { position: absolute; top: 10px; left: 10px; z-index: 4; display: flex; gap: 6px; flex-wrap: wrap; max-width: 75%; }
   .keybar button { font-size: 12px; padding: 4px 10px; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
   
   .gm-iw { font-size: 13px; line-height: 1.5; color: #17252a; max-width: 280px;}
@@ -207,6 +207,10 @@
     .app { grid-template-columns: 1fr !important; height: 100vh !important; }
     .mapcol { order: 0 !important; height: 100vh !important; width: 100vw !important; }
   }
+  .dp-rep { outline: 3px solid #f59e0b; border-radius: 8px; }
+  .dp-star { position: absolute; left: 3px; top: 1px; font-size: 14px; pointer-events: none; }
+  .dp-hint { font-size: 12px; color: var(--ink-soft); margin: 6px 0 2px; }
+  .dp-photo[data-pick] { cursor: pointer; }
   @media (max-width: 820px) {
     /* 手機：整頁固定為一個螢幕高度，上方地圖、下方控制區整塊可捲動 */
     .app { grid-template-columns: 1fr; grid-template-rows: 42vh minmax(0, 1fr); height: 100vh; height: 100dvh; }
@@ -330,7 +334,7 @@
       <button class="primary" id="exitPreview">退出預覽</button>
     </div>
 
-    <div class="keybar"><button id="keyBtn">設定 API Key</button> <button class="primary" id="tourBtn">🎬 3D 導覽</button></div>
+    <div class="keybar"><button id="keyBtn">設定 API Key</button> <button id="moveBtn">✋ 移動景點</button> <button class="primary" id="tourBtn">🎬 3D 導覽</button></div>
     <div class="overlay" id="keyOverlay">
       <div class="card">
         <h2>需要 Google Maps API Key</h2>
@@ -460,12 +464,17 @@
       const dName = s.customName || s.name;
       
       let photosHtml = '';
-      s.members.forEach(m => {
-        if(m.fileUrl) photosHtml += `<div class="dp-photo-wrap"><img class="dp-photo" src="${m.fileUrl}" title="${esc(m.name)}"></div>`;
+      const photoCount = s.members.filter((m) => m.fileUrl).length + mainPoint.extraPhotos.length;
+      const showRep = photoCount > 1;
+      const star = (u) => (showRep && s.fileUrl === u) ? '<span class="dp-star">⭐</span>' : '';
+      const cls = (u) => 'dp-photo-wrap' + ((showRep && s.fileUrl === u) ? ' dp-rep' : '');
+      s.members.forEach((m, mi) => {
+        if (m.fileUrl) photosHtml += `<div class="${cls(m.fileUrl)}"><img class="dp-photo" data-pick="m${mi}" src="${m.fileUrl}" title="${esc(m.name)}">${star(m.fileUrl)}</div>`;
       });
       mainPoint.extraPhotos.forEach((url, pIdx) => {
-        photosHtml += `<div class="dp-photo-wrap"><img class="dp-photo" src="${url}"><div class="dp-photo-x" data-idx="${pIdx}">×</div></div>`;
+        photosHtml += `<div class="${cls(url)}"><img class="dp-photo" data-pick="x${pIdx}" src="${url}"><div class="dp-photo-x" data-idx="${pIdx}">×</div>${star(url)}</div>`;
       });
+      const repHint = showRep ? '<div class="dp-hint">⭐ 代表照片：點選下方照片即可更換（用於清單、3D 導覽與匯出）</div>' : '';
 
       card.innerHTML = `
         <div class="dp-card-head">
@@ -476,6 +485,7 @@
           <div class="dp-time">${s.date ? fmtDate(s.date) : '未知時間'}</div>
         </div>
         <textarea placeholder="點此輸入景點說明、遊記心得...">${esc(mainPoint.note)}</textarea>
+        ${repHint}
         <div class="dp-photos">${photosHtml}</div>
         <label class="dp-add-btn">
           + 補充相片 (不需定位)
@@ -510,11 +520,20 @@
         if (!e.target.files.length) return;
         const fs = Array.from(e.target.files);
         e.target.value = '';
-        for (const f of fs) mainPoint.extraPhotos.push(await makeThumb(f));
+        for (const f of fs) mainPoint.extraPhotos.push(await makeThumb(f, 640));
         renderDetailPanel(); 
         if (infoIdx === i) updateInfoContent(i); 
       });
       
+      if (showRep) {
+        card.querySelectorAll('.dp-photo[data-pick]').forEach((im) => im.addEventListener('click', () => {
+          const k = im.dataset.pick, n = parseInt(k.slice(1), 10);
+          s.members.forEach((m) => { m.rep = false; m.repExtra = null; });
+          if (k[0] === 'm') s.members[n].rep = true; else mainPoint.repExtra = mainPoint.extraPhotos[n];
+          refresh(false);
+        }));
+      }
+
       card.querySelectorAll('.dp-photo-x').forEach(btn => {
         btn.addEventListener('click', (e) => {
           const rmIdx = parseInt(e.target.dataset.idx, 10);
@@ -536,7 +555,7 @@
   
   if($('clearData')) $('clearData').onclick = () => {
     points.forEach(p => { 
-      if (p.fileUrl) URL.revokeObjectURL(p.fileUrl); 
+      if (p.fileUrl) URL.revokeObjectURL(p.fileUrl); if (p.bigUrl && p.bigUrl !== p.fileUrl) URL.revokeObjectURL(p.bigUrl); 
       if (p.extraPhotos) p.extraPhotos.forEach(url => URL.revokeObjectURL(url));
     });
     points = []; noGps = []; stops = [];
@@ -602,6 +621,27 @@
     return URL.createObjectURL(f);
   }
 
+  // 一次解碼，產生清單用縮圖(240px)與導覽/匯出用高解析度(800px)
+  async function makeThumbs(f) {
+    const enc = async (bmp, q) => {
+      const cv = document.createElement('canvas');
+      cv.width = bmp.width; cv.height = bmp.height;
+      cv.getContext('2d').drawImage(bmp, 0, 0);
+      const blob = await new Promise((r) => cv.toBlob(r, 'image/jpeg', q));
+      return blob ? URL.createObjectURL(blob) : null;
+    };
+    try {
+      const big = await createImageBitmap(f, { resizeWidth: 800, resizeQuality: 'high' });
+      let small = null;
+      try { const sb = await createImageBitmap(big, { resizeWidth: 240, resizeQuality: 'medium' }); small = await enc(sb, 0.8); if (sb.close) sb.close(); } catch (e) { }
+      const bigUrl = await enc(big, 0.86);
+      if (big.close) big.close();
+      if (bigUrl) return { small: small || bigUrl, big: bigUrl };
+    } catch (e) { }
+    const u = await makeThumb(f);
+    return { small: u, big: u };
+  }
+
   async function readPhotos(imgs) {
     if (!window.exifr) { setStatus('無法載入 EXIF 解析器，請檢查網路。', true); return; }
     const results = new Array(imgs.length);
@@ -617,7 +657,8 @@
         const raw = meta && (meta.DateTimeOriginal || meta.CreateDate);
         if (raw) { const d = new Date(raw); if (!isNaN(d)) date = d; }
         const needThumb = hasGps || points.some((p) => p.name === f.name);
-        results[i] = { f, gps: hasGps ? gps : null, date, fileUrl: needThumb ? await makeThumb(f) : null };
+        const th = needThumb ? await makeThumbs(f) : null;
+        results[i] = { f, gps: hasGps ? gps : null, date, fileUrl: th ? th.small : null, bigUrl: th ? th.big : null };
       } catch (e) { results[i] = { f, gps: null, date: null, fileUrl: null }; }
       setStatus(`解析照片中… ${++done} / ${imgs.length}`);
     });
@@ -626,11 +667,15 @@
       if (!r) return;
       const existing = points.find((p) => p.name === r.f.name);
       if (existing) {
-        if (r.fileUrl) { if (existing.fileUrl) URL.revokeObjectURL(existing.fileUrl); existing.fileUrl = r.fileUrl; }
-        if (r.gps) { existing.lat = r.gps.latitude; existing.lon = r.gps.longitude; }
+        if (r.fileUrl) {
+          if (existing.fileUrl) URL.revokeObjectURL(existing.fileUrl);
+          if (existing.bigUrl && existing.bigUrl !== existing.fileUrl) URL.revokeObjectURL(existing.bigUrl);
+          existing.fileUrl = r.fileUrl; existing.bigUrl = r.bigUrl;
+        }
+        if (r.gps && !existing.moved) { existing.lat = r.gps.latitude; existing.lon = r.gps.longitude; }
         if (r.date && !existing.date) existing.date = r.date;
       } else if (r.gps) {
-        points.push({ name: r.f.name, customName: '', date: r.date, lat: r.gps.latitude, lon: r.gps.longitude, fileUrl: r.fileUrl, note: '', extraPhotos: [] });
+        points.push({ name: r.f.name, customName: '', date: r.date, lat: r.gps.latitude, lon: r.gps.longitude, fileUrl: r.fileUrl, bigUrl: r.bigUrl, note: '', extraPhotos: [] });
       } else if (!noGps.includes(r.f.name)) noGps.push(r.f.name);
     });
   }
@@ -712,12 +757,20 @@
         ms.forEach((m) => { m.note = note; });
         if (!head.extraPhotos) head.extraPhotos = [];
         ms.slice(1).forEach((m) => { (m.extraPhotos || []).forEach((u) => head.extraPhotos.push(u)); m.extraPhotos = []; });
+        const rx = ms.find((m) => m.repExtra);
+        if (rx) head.repExtra = rx.repExtra;
       }
       const real = ms.find((m) => !m.manual && !m.noLoc) || head;   // 手動插入/無定位者不決定座標
       const withUrl = ms.find((m) => m.fileUrl);
       const withDate = ms.find((m) => m.date && !m.manual) || ms.find((m) => m.date);
       s.lat = real.lat; s.lon = real.lon;
       s.fileUrl = withUrl ? withUrl.fileUrl : null;
+      const withBig = ms.find((m) => m.bigUrl);
+      s.bigUrl = withBig ? withBig.bigUrl : null;
+      // 使用者自選的代表照片
+      const repM = ms.find((m) => m.rep && m.fileUrl);
+      if (repM) { s.fileUrl = repM.fileUrl; s.bigUrl = repM.bigUrl || repM.fileUrl; }
+      else if (head.repExtra && (head.extraPhotos || []).includes(head.repExtra)) { s.fileUrl = head.repExtra; s.bigUrl = head.repExtra; }
       s.date = withDate ? withDate.date : null;
       s.customName = ms.map((m) => m.customName).find(Boolean) || '';
     });
@@ -815,7 +868,7 @@
 
   function removeStop(i) {
     const rm = new Set(stops[i].members);
-    rm.forEach((p) => { if (p.fileUrl) URL.revokeObjectURL(p.fileUrl); (p.extraPhotos || []).forEach((u) => URL.revokeObjectURL(u)); });
+    rm.forEach((p) => { if (p.fileUrl) URL.revokeObjectURL(p.fileUrl); if (p.bigUrl && p.bigUrl !== p.fileUrl) URL.revokeObjectURL(p.bigUrl); (p.extraPhotos || []).forEach((u) => URL.revokeObjectURL(u)); });
     points = points.filter((p) => !rm.has(p));
     refresh(false);
   }
@@ -863,7 +916,8 @@
           if (raw) { const d = new Date(raw); if (!isNaN(d)) date = d; }
         } catch (e) { }
       }
-      res[i] = { f, gps, date, fileUrl: await makeThumb(f) };
+      const th = await makeThumbs(f);
+      res[i] = { f, gps, date, fileUrl: th.small, bigUrl: th.big };
       setStatus(`處理照片中… ${++done} / ${files.length}`);
     });
     const note = s.members[0].note || '';
@@ -872,7 +926,7 @@
       points.splice(at++, 0, {
         name: r.f.name, customName: name, date: r.date,
         lat: r.gps ? r.gps.latitude : s.lat, lon: r.gps ? r.gps.longitude : s.lon,
-        fileUrl: r.fileUrl, note, extraPhotos: [], noLoc: !r.gps
+        fileUrl: r.fileUrl, bigUrl: r.bigUrl, note, extraPhotos: [], noLoc: !r.gps
       });
     });
     setStatus(`✅ 已將 ${res.length} 張照片加入「${name}」。`, false, true);
@@ -999,10 +1053,11 @@
     const dName = s.customName || s.name; 
     
     let photosHtml = '';
-    s.members.forEach(m => { if(m.fileUrl) photosHtml += `<img class="iw-photo" src="${m.fileUrl}">`; });
-    if (mainPoint.extraPhotos) {
-      mainPoint.extraPhotos.forEach(url => { photosHtml += `<img class="iw-photo" src="${url}">`; });
-    }
+    const allUrls = [];
+    s.members.forEach((m) => { if (m.fileUrl) allUrls.push(m.fileUrl); });
+    (mainPoint.extraPhotos || []).forEach((u) => allUrls.push(u));
+    allUrls.sort((x, y) => (y === s.fileUrl) - (x === s.fileUrl));
+    allUrls.forEach((u) => { photosHtml += `<img class="iw-photo" src="${u}">`; });
     if (photosHtml) photosHtml = `<div class="iw-photo-grid">${photosHtml}</div>`;
     
     let noteHtml = mainPoint.note ? `<div class="iw-note">${esc(mainPoint.note).replace(/\n/g, '<br>')}</div>` : '';
@@ -1092,7 +1147,7 @@
       const isFirst = i === 0, isLast = i === stops.length - 1 && stops.length > 1;
       const dName = s.customName || s.name; 
       const m = new google.maps.Marker({
-        position: pos, map, zIndex: 10 + i,
+        position: pos, map, zIndex: 10 + i, draggable: moveMode,
         title: `${i + 1}. ${dName}`,
         label: { text: String(i + 1), color: '#ffffff', fontWeight: '700', fontSize: '12px' },
         icon: {
@@ -1107,6 +1162,13 @@
         else { infoWin.close(); infoIdx = -1; }
       });
       m.addListener('click', () => { focusStop(i, false); showInfo(i, true); });
+      m.addListener('dragstart', () => { infoWin.close(); infoIdx = -1; pinned = -1; });
+      m.addListener('dragend', (e) => {
+        const ll = e.latLng;
+        s.members.forEach((pt) => { pt.lat = ll.lat(); pt.lon = ll.lng(); pt.moved = true; pt.noLoc = false; });
+        setStatus('已移動「' + dName + '」的位置。', false, true);
+        refresh(false);
+      });
       markers.push(m);
     });
 
@@ -1151,6 +1213,15 @@
 
   /* ---------- 匯出與備份功能 ---------- */
   
+  let moveMode = false;
+  if ($('moveBtn')) $('moveBtn').onclick = () => {
+    moveMode = !moveMode;
+    $('moveBtn').classList.toggle('primary', moveMode);
+    $('moveBtn').textContent = moveMode ? '✋ 移動中（點此結束）' : '✋ 移動景點';
+    markers.forEach((m) => m.setDraggable(moveMode));
+    setStatus(moveMode ? '按住地圖上的編號圓點，拖曳到新位置即可。' : '', false, moveMode);
+  };
+
   let tour = null;
   if ($('tourBtn')) $('tourBtn').onclick = () => {
     if (tour) { tour.stop(); return; }
@@ -1159,19 +1230,21 @@
     if (infoWin) infoWin.close();
     const list = stops.map((s) => ({
       lat: s.lat, lon: s.lon, name: s.customName || s.name, timeStr: s.date ? fmtDate(s.date) : '',
-      note: s.members[0].note || '', photo: s.fileUrl || (s.members[0].extraPhotos || [])[0] || null
+      note: s.members[0].note || '', photo: s.bigUrl || s.fileUrl || (s.members[0].extraPhotos || [])[0] || null
     }));
     $('tourBtn').style.display = 'none';
     tour = tourEngine(map, list, { onExit: () => { tour = null; $('tourBtn').style.display = ''; } });
   };
 
-  async function toDataUrl(url) {
+  async function toDataUrl(url, limit) {
+    limit = limit || 150000;
     try {
       let blob = await (await fetch(url)).blob();
-      if (blob.size > 150000) {
+      if (blob.size > limit) {
         const u = await makeThumb(blob);
         blob = await (await fetch(u)).blob();
         URL.revokeObjectURL(u);
+        if (blob.size > limit * 4) return null;
       }
       return await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); });
     } catch (e) { return null; }
@@ -1179,6 +1252,7 @@
 
   if($('exportBackupBtn')) $('exportBackupBtn').onclick = async () => {
     if (!points.length) { setStatus('沒有資料可以備份。', true); return; }
+    const withBig = confirm('是否一併備份高解析度照片？\n（畫質較好，但備份檔會大很多）\n\n按「確定」＝含高解析度；按「取消」＝只存縮圖');
     $('exportBackupBtn').disabled = true;
     setStatus('備份製作中（含縮圖）…');
     const list = [];
@@ -1186,9 +1260,11 @@
       list.push({
         name: p.name, customName: p.customName,
         date: p.date ? p.date.toISOString() : null,
-        lat: p.lat, lon: p.lon, note: p.note, manual: !!p.manual, noLoc: !!p.noLoc,
+        lat: p.lat, lon: p.lon, note: p.note, manual: !!p.manual, noLoc: !!p.noLoc, moved: !!p.moved,
+        rep: !!p.rep, repIdx: p.repExtra ? (p.extraPhotos || []).indexOf(p.repExtra) : -1,
         thumb: p.fileUrl ? await toDataUrl(p.fileUrl) : null,
-        extra: (await Promise.all((p.extraPhotos || []).map(toDataUrl))).filter(Boolean)
+        big: (withBig && p.bigUrl && p.bigUrl !== p.fileUrl) ? await toDataUrl(p.bigUrl, 600000) : null,
+        extra: (await Promise.all((p.extraPhotos || []).map((u) => toDataUrl(u)))).filter(Boolean)
       });
     }
     const title = $('tripTitle') ? $('tripTitle').value : '';
@@ -1215,7 +1291,9 @@
             lon: p.lon,
             note: p.note || '',
             fileUrl: p.thumb || null,
-            extraPhotos: Array.isArray(p.extra) ? p.extra : [], manual: !!p.manual, noLoc: !!p.noLoc
+            bigUrl: p.big || p.thumb || null,
+            extraPhotos: Array.isArray(p.extra) ? p.extra : [], manual: !!p.manual, noLoc: !!p.noLoc, moved: !!p.moved,
+            rep: !!p.rep, repExtra: (p.repIdx >= 0 && Array.isArray(p.extra)) ? (p.extra[p.repIdx] || null) : null
           }));
         }
         refresh(true);
@@ -1250,7 +1328,9 @@
       const urls = [];
       stops[i].members.forEach((m) => { if (m.fileUrl) urls.push(m.fileUrl); });
       (stops[i].members[0].extraPhotos || []).forEach((u) => urls.push(u));
-      exportStops[i].photos = (await Promise.all(urls.slice(0, 8).map(toDataUrl))).filter(Boolean);
+      urls.sort((x, y) => (y === stops[i].fileUrl) - (x === stops[i].fileUrl));
+      exportStops[i].photos = (await Promise.all(urls.slice(0, 8).map((u) => toDataUrl(u)))).filter(Boolean);
+      exportStops[i].photo = stops[i].bigUrl ? await toDataUrl(stops[i].bigUrl, 450000) : null;
     }
 
     const mode = $('routeSel') ? $('routeSel').value : 'straight';
@@ -1279,6 +1359,7 @@
   const routeMode = '${mode}';
   const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const photoGrid = (s) => (s.photos && s.photos.length) ? '<div class="iw-photo-grid">' + s.photos.map((u) => '<img class="iw-photo" src="' + u + '">').join('') + '</div>' : '';
+  ${tourMusic.toString()}
   ${tourEngine.toString()}
   function initMap() {
     const map = new google.maps.Map(document.getElementById('map'), { mapTypeControl: true, fullscreenControl: true, mapId: 'DEMO_MAP_ID' });
@@ -1403,6 +1484,73 @@
   }
   if($('routeSel')) $('routeSel').addEventListener('change', renderOut);
 
+  /* ---------- 導覽配樂（Web Audio 即時合成，無版權問題；也可載入自己的音樂） ---------- */
+  function tourMusic() {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const MOODS = {
+      relax:  { bpm: 78,  wave: 'triangle', chords: [[48, 52, 55, 59], [45, 48, 52, 55], [41, 45, 48, 52], [43, 47, 50, 55]], arp: [0, 2, 1, 3, 2, 1, 3, 2] },
+      calm:   { bpm: 62,  wave: 'sine',     chords: [[45, 48, 52, 55], [41, 45, 48, 52], [48, 52, 55, 59], [43, 47, 50, 55]], arp: [0, 1, 2, 3, 2, 1, 2, 3] },
+      lively: { bpm: 112, wave: 'triangle', chords: [[43, 47, 50, 55], [38, 42, 45, 50], [40, 43, 47, 52], [36, 40, 43, 48]], arp: [0, 2, 3, 2, 1, 3, 2, 3] }
+    };
+    let ctx = null, master = null, dest = null, timer = 0, next = 0, beat = 0, mood = 'relax', audioEl = null, fileUrl = null;
+    const mtof = function (m) { return 440 * Math.pow(2, (m - 69) / 12); };
+    function init() {
+      if (ctx || !AC) return;
+      ctx = new AC();
+      master = ctx.createGain(); master.gain.value = 0.32;
+      const dl = ctx.createDelay(1), fb = ctx.createGain();
+      dl.delayTime.value = 0.32; fb.gain.value = 0.32;
+      master.connect(dl); dl.connect(fb); fb.connect(dl);
+      const out = ctx.createGain(); out.gain.value = 1;
+      master.connect(out); dl.connect(out);
+      out.connect(ctx.destination);
+      if (ctx.createMediaStreamDestination) { dest = ctx.createMediaStreamDestination(); out.connect(dest); }
+    }
+    function tone(freq, t0, dur, type, vol, atk, rel) {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = type; o.frequency.value = freq;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.linearRampToValueAtTime(vol, t0 + atk);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur + rel);
+      o.connect(g); g.connect(master);
+      o.start(t0); o.stop(t0 + dur + rel + 0.05);
+    }
+    function tick() {
+      const m = MOODS[mood], spb = 60 / m.bpm / 2;
+      while (next < ctx.currentTime + 0.4) {
+        const bar = Math.floor(beat / 8), pos = beat % 8, ch = m.chords[bar % m.chords.length];
+        if (pos === 0) ch.forEach(function (n) { tone(mtof(n), next, spb * 8, m.wave, 0.045, 0.7, 0.9); });
+        tone(mtof(ch[m.arp[pos] % ch.length] + 12 + (pos % 4 === 3 ? 12 : 0)), next, spb * 1.2, 'triangle', 0.1, 0.01, 0.55);
+        if (pos === 0 && bar % 2 === 0) tone(mtof(ch[3] + 24), next, spb * 4, 'sine', 0.05, 0.02, 1.6);
+        next += spb; beat++;
+      }
+    }
+    function stopFile() { if (audioEl) { audioEl.pause(); audioEl = null; } if (fileUrl) { URL.revokeObjectURL(fileUrl); fileUrl = null; } }
+    function stopSynth() { if (timer) { clearInterval(timer); timer = 0; } }
+    return {
+      start: function (m) {
+        init(); if (!ctx) return;
+        if (ctx.state === 'suspended') ctx.resume();
+        mood = MOODS[m] ? m : mood; stopFile();
+        master.gain.cancelScheduledValues(ctx.currentTime); master.gain.setTargetAtTime(0.32, ctx.currentTime, 0.1);
+        if (!timer) { next = ctx.currentTime + 0.1; beat = 0; timer = setInterval(tick, 100); }
+      },
+      loadFile: function (file) {
+        init(); if (!ctx) return;
+        if (ctx.state === 'suspended') ctx.resume();
+        stopSynth(); stopFile();
+        master.gain.setTargetAtTime(0.9, ctx.currentTime, 0.1);
+        fileUrl = URL.createObjectURL(file);
+        audioEl = new Audio(fileUrl); audioEl.loop = true;
+        try { ctx.createMediaElementSource(audioEl).connect(master); } catch (e) { }
+        audioEl.play().catch(function () { });
+      },
+      stop: function () { stopSynth(); stopFile(); if (ctx) master.gain.setTargetAtTime(0, ctx.currentTime, 0.15); },
+      stream: function () { return dest ? dest.stream : null; },
+      dispose: function () { stopSynth(); stopFile(); if (ctx) { try { ctx.close(); } catch (e) { } ctx = null; } }
+    };
+  }
+
   /* ---------- 3D 動態導覽引擎（自成一體，主程式與匯出頁面共用） ---------- */
   function tourEngine(map, stops, opts) {
     opts = opts || {};
@@ -1467,15 +1615,16 @@
     if (!document.getElementById('t3d-style')) {
       const st = document.createElement('style'); st.id = 't3d-style';
       st.textContent = '.t3d-root{position:absolute;inset:0;pointer-events:none;z-index:20;font-family:"Noto Sans TC",sans-serif}' +
-        '.t3d-card{position:absolute;left:50%;bottom:78px;transform:translate(-50%,14px);width:min(300px,86%);background:#fff;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.35);overflow:hidden;opacity:0;transition:opacity .5s,transform .5s}' +
+        '.t3d-card{position:absolute;left:50%;bottom:78px;transform:translate(-50%,14px);width:min(340px,88%);background:#fff;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.35);overflow:hidden;opacity:0;transition:opacity .5s,transform .5s}' +
         '.t3d-card.on{opacity:1;transform:translate(-50%,0)}' +
-        '.t3d-card img{display:block;width:100%;height:170px;object-fit:cover;background:#dfe9e7}' +
+        '.t3d-card img{display:block;width:100%;height:min(210px,26vh);object-fit:cover;background:#dfe9e7}' +
         '.t3d-info{padding:10px 14px 12px;color:#17252a}.t3d-idx{font-size:11px;color:#0f766e;font-weight:700}' +
         '.t3d-info b{display:block;font-size:17px;margin:2px 0}.t3d-time{font-size:12px;color:#5b6b70}' +
         '.t3d-note{font-size:13px;margin-top:6px;max-height:3.9em;overflow:hidden;color:#92400e}' +
         '.t3d-toast{position:absolute;top:12px;left:50%;transform:translateX(-50%);background:rgba(15,118,110,.92);color:#fff;padding:7px 16px;border-radius:20px;font-size:14px;font-weight:700;opacity:0;transition:opacity .4s;max-width:80%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
         '.t3d-toast.on{opacity:1}' +
-        '.t3d-bar{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.95);padding:6px 10px;border-radius:24px;box-shadow:0 2px 10px rgba(0,0,0,.3);pointer-events:auto;max-width:96%}' +
+        '.t3d-root.rec .t3d-bar{display:none}' +
+        '.t3d-bar{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:6px;background:rgba(255,255,255,.95);padding:6px 10px;border-radius:18px;box-shadow:0 2px 10px rgba(0,0,0,.3);pointer-events:auto;max-width:96%}' +
         '.t3d-bar button,.t3d-bar select{font-size:15px;border:0;background:#eef4f3;border-radius:16px;padding:5px 10px;cursor:pointer;color:#17252a}' +
         '.t3d-bar input{width:clamp(70px,22vw,170px)}';
       document.head.appendChild(st);
@@ -1485,11 +1634,14 @@
     root.innerHTML = '<div class="t3d-toast"></div>' +
       '<div class="t3d-card"><img alt=""><div class="t3d-info"><div class="t3d-idx"></div><b></b><div class="t3d-time"></div><div class="t3d-note"></div></div></div>' +
       '<div class="t3d-bar"><button data-a="prev">⏮</button><button data-a="play">⏸</button><button data-a="next">⏭</button>' +
-      '<input type="range" min="0" max="1000" value="0"><select><option value="0.6">0.6×</option><option value="1" selected>1×</option><option value="1.8">1.8×</option></select>' +
-      '<button data-a="exit">✕</button></div>';
+      '<input type="range" min="0" max="1000" value="0"><select class="spd"><option value="0.6">0.6×</option><option value="1" selected>1×</option><option value="1.8">1.8×</option></select>' +
+      '<select class="mood"><option value="relax">🎵 輕鬆</option><option value="calm">🎵 抒情</option><option value="lively">🎵 活力</option><option value="off">🔇 無音樂</option><option value="file">📂 自選音樂…</option></select>' +
+      '<select class="res" title="輸出影片解析度"><option value="720">720P</option><option value="1080" selected>1080P</option><option value="4k">4K</option></select>' +
+      '<button data-a="rec" title="輸出影片（電腦版 Chrome／Edge）">⏺ 輸出影片</button>' +
+      '<button data-a="exit">✕</button></div><input type="file" class="t3d-file" accept="audio/*" hidden>';
     host.appendChild(root);
     const q = function (s) { return root.querySelector(s); };
-    const card = q('.t3d-card'), img = q('.t3d-card img'), toast = q('.t3d-toast'), range = q('input'), sel = q('select'), playBtn = q('[data-a=play]');
+    const card = q('.t3d-card'), img = q('.t3d-card img'), toast = q('.t3d-toast'), range = q('input[type=range]'), sel = q('.spd'), moodSel = q('.mood'), fileIn = q('.t3d-file'), recBtn = q('[data-a=rec]'), resSel = q('.res'), playBtn = q('[data-a=play]');
 
     const saved = { center: map.getCenter().toJSON(), zoom: map.getZoom(), tilt: map.getTilt ? (map.getTilt() || 0) : 0, heading: map.getHeading ? (map.getHeading() || 0) : 0 };
     const savedGesture = map.get('gestureHandling');
@@ -1499,7 +1651,8 @@
       icon: { path: google.maps.SymbolPath.CIRCLE, scale: 9, fillColor: '#f59e0b', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 3 } });
     const trail = new google.maps.Polyline({ map: map, strokeColor: '#f59e0b', strokeWeight: 5, strokeOpacity: 0.95, clickable: false });
 
-    let T = 0, playing = true, speed = 1, last = performance.now(), raf = 0, alive = true, shown = -1;
+    const music = tourMusic(); music.start('relax');
+    let rec = null, recEnding = false, T = 0, playing = true, speed = 1, last = performance.now(), raf = 0, alive = true, shown = -1;
     function show(i) {
       const p = pts[i];
       q('.t3d-idx').textContent = '第 ' + (i + 1) + ' / ' + pts.length + ' 站';
@@ -1526,13 +1679,72 @@
       if (!alive) return;
       const dt = Math.min(100, now - last); last = now;
       if (playing) T += dt * speed;
-      if (T >= total - 1) { T = total - 1; setPlaying(false); }
+      if (T >= total - 1) {
+        T = total - 1; setPlaying(false);
+        if (rec && rec.state === 'recording' && !recEnding) { recEnding = true; setTimeout(stopRec, 1800); }
+      }
       render();
       raf = requestAnimationFrame(frame);
     }
     function go(k) { k = Math.max(0, Math.min(pts.length - 1, k)); T = dwellStart(k) + 1; shown = -1; }
+    function stopRec() { if (rec && rec.state !== 'inactive') rec.stop(); }
+    async function startRec() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia || !window.MediaRecorder) {
+        alert('此瀏覽器不支援影片輸出。請改用電腦版 Chrome 或 Edge；手機請使用系統內建的螢幕錄影。'); return;
+      }
+      const RES = { '720': [1280, 720, 4000000], '1080': [1920, 1080, 8000000], '4k': [3840, 2160, 24000000] };
+      const key = resSel.value in RES ? resSel.value : '1080', W = RES[key][0], H = RES[key][1], bps = RES[key][2];
+      let disp;
+      try { disp = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30, width: { ideal: 3840 }, height: { ideal: 2160 } }, audio: false, preferCurrentTab: true, selfBrowserSurface: 'include' }); }
+      catch (e) { return; }
+      const vt = disp.getVideoTracks()[0];
+      try { if (window.CropTarget && vt.cropTo) { await vt.cropTo(await CropTarget.fromElement(host)); } } catch (e) { }
+
+      // 先把擷取畫面畫進固定尺寸的畫布，確保輸出就是所選的解析度（保持比例、不足處填黑）
+      const vid = document.createElement('video');
+      vid.muted = true; vid.playsInline = true; vid.srcObject = new MediaStream([vt]);
+      try { await vid.play(); } catch (e) { }
+      const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+      const g = cv.getContext('2d');
+      let drawing = true;
+      (function draw() {
+        if (!drawing) return;
+        const vw = vid.videoWidth, vh = vid.videoHeight;
+        if (vw && vh) {
+          const sc = Math.min(W / vw, H / vh), dw = vw * sc, dh = vh * sc;
+          g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+          g.imageSmoothingQuality = 'high';
+          g.drawImage(vid, (W - dw) / 2, (H - dh) / 2, dw, dh);
+        }
+        requestAnimationFrame(draw);
+      })();
+
+      const tracks = [cv.captureStream(30).getVideoTracks()[0]], ms = music.stream();
+      if (ms) ms.getAudioTracks().forEach(function (a) { tracks.push(a); });
+      const avc = key === '4k' ? 'avc1.640033' : 'avc1.640028';
+      const types = ['video/mp4;codecs=' + avc + ',mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+      const mime = types.find(function (m) { return MediaRecorder.isTypeSupported(m); }) || '';
+      const mr = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType: mime, videoBitsPerSecond: bps } : { videoBitsPerSecond: bps });
+      const chunks = [];
+      mr.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
+      mr.onstop = function () {
+        drawing = false; vid.srcObject = null;
+        disp.getTracks().forEach(function (x) { x.stop(); });
+        const type = mr.mimeType || 'video/webm', ext = type.indexOf('mp4') >= 0 ? 'mp4' : 'webm';
+        const url = URL.createObjectURL(new Blob(chunks, { type: type }));
+        const a = document.createElement('a'); a.href = url; a.download = '3D導覽影片_' + (key === '4k' ? '4K' : key + 'P') + '.' + ext;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+        root.classList.remove('rec'); recBtn.textContent = '⏺ 輸出影片'; rec = null; recEnding = false;
+      };
+      vt.addEventListener('ended', function () { if (mr.state !== 'inactive') mr.stop(); });
+      T = 0; shown = -1; setPlaying(true);
+      root.classList.add('rec'); recBtn.textContent = '⏹ 停止錄影';
+      rec = mr; mr.start(1000);
+    }
     function stop() {
       if (!alive) return; alive = false; cancelAnimationFrame(raf);
+      stopRec(); music.dispose();
       root.remove(); dot.setMap(null); trail.setMap(null);
       map.setOptions({ gestureHandling: savedGesture || 'auto', keyboardShortcuts: true });
       try { map.moveCamera(saved); } catch (e) { map.setCenter(saved.center); map.setZoom(saved.zoom); }
@@ -1546,9 +1758,17 @@
       else if (a === 'play') { if (T >= total - 1) { T = 0; shown = -1; } setPlaying(!playing); }
       else if (a === 'prev') go(s.dwell ? (s.u > 0.2 ? s.i : s.i - 1) : s.i);
       else if (a === 'next') go(s.i + 1);
+      else if (a === 'rec') { if (rec) stopRec(); else startRec(); }
     });
     range.addEventListener('input', function () { T = range.value / 1000 * total; shown = -1; });
     sel.addEventListener('change', function () { speed = parseFloat(sel.value) || 1; });
+    moodSel.addEventListener('change', function () {
+      const v = moodSel.value;
+      if (v === 'off') music.stop(); else if (v === 'file') fileIn.click(); else music.start(v);
+    });
+    fileIn.addEventListener('change', function () {
+      if (fileIn.files && fileIn.files[0]) music.loadFile(fileIn.files[0]); else { moodSel.value = 'relax'; music.start('relax'); }
+    });
     render();
     raf = requestAnimationFrame(frame);
     return { stop: stop };
