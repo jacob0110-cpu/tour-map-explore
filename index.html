@@ -330,7 +330,7 @@
       <button class="primary" id="exitPreview">退出預覽</button>
     </div>
 
-    <div class="keybar"><button id="keyBtn">設定 API Key</button></div>
+    <div class="keybar"><button id="keyBtn">設定 API Key</button> <button class="primary" id="tourBtn">🎬 3D 導覽</button></div>
     <div class="overlay" id="keyOverlay">
       <div class="card">
         <h2>需要 Google Maps API Key</h2>
@@ -404,7 +404,7 @@
 
   window.__initMap = function () {
     map = new google.maps.Map($('map'), {
-      center: { lat: 23.7, lng: 121 }, zoom: 7,
+      center: { lat: 23.7, lng: 121 }, zoom: 7, mapId: 'DEMO_MAP_ID',
       mapTypeControl: true, streetViewControl: false, fullscreenControl: true,
       mapTypeControlOptions: { position: google.maps.ControlPosition.TOP_RIGHT }
     });
@@ -1151,6 +1151,20 @@
 
   /* ---------- 匯出與備份功能 ---------- */
   
+  let tour = null;
+  if ($('tourBtn')) $('tourBtn').onclick = () => {
+    if (tour) { tour.stop(); return; }
+    if (!mapReady) { setStatus('請先載入地圖。', true); return; }
+    if (!stops.length) { setStatus('請先加入景點或照片。', true); return; }
+    if (infoWin) infoWin.close();
+    const list = stops.map((s) => ({
+      lat: s.lat, lon: s.lon, name: s.customName || s.name, timeStr: s.date ? fmtDate(s.date) : '',
+      note: s.members[0].note || '', photo: s.fileUrl || (s.members[0].extraPhotos || [])[0] || null
+    }));
+    $('tourBtn').style.display = 'none';
+    tour = tourEngine(map, list, { onExit: () => { tour = null; $('tourBtn').style.display = ''; } });
+  };
+
   async function toDataUrl(url) {
     try {
       let blob = await (await fetch(url)).blob();
@@ -1254,17 +1268,20 @@
   a { color: #0f766e; text-decoration: none; }
   .iw-photo-grid { display: flex; gap: 4px; overflow-x: auto; margin-bottom: 8px; }
   .iw-photo { height: 80px; width: 80px; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
+  .tour-btn { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 5; border: 0; background: #0f766e; color: #fff; font-weight: 700; font-size: 14px; padding: 8px 18px; border-radius: 20px; box-shadow: 0 2px 8px rgba(0,0,0,.3); cursor: pointer; }
   .floating-title { position: absolute; bottom: 28px; left: 12px; max-width: calc(100% - 90px); background: rgba(255,255,255,0.9); padding: 8px 16px; border-radius: 8px; font-weight: 700; color: #0f766e; z-index: 5; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
 </style></head>
 <body><div id="map"></div>
 <div class="floating-title">🗺️ ${esc(tripName)}</div>
+<button id="tourBtn" class="tour-btn">🎬 3D 導覽</button>
 <script>
   const stops = ${JSON.stringify(exportStops).replace(/</g, '\u003c')};
   const routeMode = '${mode}';
   const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const photoGrid = (s) => (s.photos && s.photos.length) ? '<div class="iw-photo-grid">' + s.photos.map((u) => '<img class="iw-photo" src="' + u + '">').join('') + '</div>' : '';
+  ${tourEngine.toString()}
   function initMap() {
-    const map = new google.maps.Map(document.getElementById('map'), { mapTypeControl: true, fullscreenControl: true });
+    const map = new google.maps.Map(document.getElementById('map'), { mapTypeControl: true, fullscreenControl: true, mapId: 'DEMO_MAP_ID' });
     const infoWin = new google.maps.InfoWindow(); const bounds = new google.maps.LatLngBounds();
     stops.forEach((s, i) => {
       const pos = { lat: s.lat, lng: s.lon }; bounds.extend(pos);
@@ -1282,6 +1299,8 @@
         infoWin.setContent(content); infoWin.open({ map, anchor: m });
       });
     });
+    const tb = document.getElementById('tourBtn');
+    tb.onclick = () => { tb.style.display = 'none'; infoWin.close(); tourEngine(map, stops, { onExit: () => { tb.style.display = ''; } }); };
     if (stops.length === 1) { map.setCenter({ lat: stops[0].lat, lng: stops[0].lon }); map.setZoom(15); } 
     else if (stops.length > 1) { map.fitBounds(bounds, 60); }
     if (stops.length > 1) {
@@ -1383,6 +1402,157 @@
     }
   }
   if($('routeSel')) $('routeSel').addEventListener('change', renderOut);
+
+  /* ---------- 3D 動態導覽引擎（自成一體，主程式與匯出頁面共用） ---------- */
+  function tourEngine(map, stops, opts) {
+    opts = opts || {};
+    const pts = stops.map(function (s) {
+      return {
+        lat: s.lat, lng: (s.lon !== undefined ? s.lon : s.lng),
+        name: s.name || '', timeStr: s.timeStr || '', note: s.note || '',
+        photo: s.photo || (s.photos && s.photos[0]) || null
+      };
+    });
+    if (!pts.length) return { stop: function () { } };
+    const rad = Math.PI / 180, ZSTOP = 17.2, TILT = 67, DWELL = 4800;
+    const hav = function (a, b) {
+      const dLat = (b.lat - a.lat) * rad, dLng = (b.lng - a.lng) * rad;
+      const x = Math.pow(Math.sin(dLat / 2), 2) + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.pow(Math.sin(dLng / 2), 2);
+      return 2 * 6371 * Math.asin(Math.min(1, Math.sqrt(x)));
+    };
+    const bearing = function (a, b) {
+      const y = Math.sin((b.lng - a.lng) * rad) * Math.cos(b.lat * rad);
+      const x = Math.cos(a.lat * rad) * Math.sin(b.lat * rad) - Math.sin(a.lat * rad) * Math.cos(b.lat * rad) * Math.cos((b.lng - a.lng) * rad);
+      return (Math.atan2(y, x) / rad + 360) % 360;
+    };
+    const angLerp = function (a, b, t) { const d = ((b - a + 540) % 360) - 180; return (a + d * t + 360) % 360; };
+    const ease = function (t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; };
+    const lerp = function (a, b, t) { return a + (b - a) * t; };
+
+    // 時間軸：停留 → 移動 → 停留 …
+    const segs = []; let acc = 0;
+    pts.forEach(function (p, i) {
+      const next = pts[i + 1], prev = pts[i - 1];
+      const depart = next ? bearing(p, next) : (prev ? bearing(prev, p) : 0);
+      const arrive = prev ? bearing(prev, p) : depart;
+      segs.push({ type: 'dwell', i: i, start: acc, dur: DWELL, arrive: arrive, depart: depart });
+      acc += DWELL;
+      if (next) {
+        const d = hav(p, next);
+        const dur = Math.min(9000, Math.max(3500, 2500 + 1800 * Math.log2(1 + d * 2)));
+        segs.push({ type: 'move', i: i, start: acc, dur: dur, h: depart, zFar: Math.max(5, Math.min(16, 17 - 1.1 * Math.log2(1 + d * 3))) });
+        acc += dur;
+      }
+    });
+    const total = acc;
+
+    function camAt(T) {
+      T = Math.max(0, Math.min(total - 1, T));
+      let sg = segs[segs.length - 1];
+      for (let k = 0; k < segs.length; k++) { if (T >= segs[k].start && T < segs[k].start + segs[k].dur) { sg = segs[k]; break; } }
+      const u = Math.max(0, Math.min(1, (T - sg.start) / sg.dur));
+      if (sg.type === 'dwell') {
+        const p = pts[sg.i];
+        return { i: sg.i, dwell: true, u: u, pos: { lat: p.lat, lng: p.lng },
+          cam: { center: { lat: p.lat, lng: p.lng }, zoom: ZSTOP, tilt: TILT, heading: angLerp(sg.arrive, sg.depart, ease(u)) } };
+      }
+      const a = pts[sg.i], b = pts[sg.i + 1], e = ease(u), arc = Math.pow(Math.sin(Math.PI * u), 0.7);
+      const pos = { lat: lerp(a.lat, b.lat, e), lng: lerp(a.lng, b.lng, e) };
+      return { i: sg.i, dwell: false, u: u, pos: pos,
+        cam: { center: pos, zoom: lerp(ZSTOP, sg.zFar, arc), tilt: lerp(TILT, 48, arc), heading: sg.h } };
+    }
+    function dwellStart(k) { for (let q = 0; q < segs.length; q++) { if (segs[q].type === 'dwell' && segs[q].i === k) return segs[q].start; } return 0; }
+
+    // 介面
+    if (!document.getElementById('t3d-style')) {
+      const st = document.createElement('style'); st.id = 't3d-style';
+      st.textContent = '.t3d-root{position:absolute;inset:0;pointer-events:none;z-index:20;font-family:"Noto Sans TC",sans-serif}' +
+        '.t3d-card{position:absolute;left:50%;bottom:78px;transform:translate(-50%,14px);width:min(300px,86%);background:#fff;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.35);overflow:hidden;opacity:0;transition:opacity .5s,transform .5s}' +
+        '.t3d-card.on{opacity:1;transform:translate(-50%,0)}' +
+        '.t3d-card img{display:block;width:100%;height:170px;object-fit:cover;background:#dfe9e7}' +
+        '.t3d-info{padding:10px 14px 12px;color:#17252a}.t3d-idx{font-size:11px;color:#0f766e;font-weight:700}' +
+        '.t3d-info b{display:block;font-size:17px;margin:2px 0}.t3d-time{font-size:12px;color:#5b6b70}' +
+        '.t3d-note{font-size:13px;margin-top:6px;max-height:3.9em;overflow:hidden;color:#92400e}' +
+        '.t3d-toast{position:absolute;top:12px;left:50%;transform:translateX(-50%);background:rgba(15,118,110,.92);color:#fff;padding:7px 16px;border-radius:20px;font-size:14px;font-weight:700;opacity:0;transition:opacity .4s;max-width:80%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+        '.t3d-toast.on{opacity:1}' +
+        '.t3d-bar{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.95);padding:6px 10px;border-radius:24px;box-shadow:0 2px 10px rgba(0,0,0,.3);pointer-events:auto;max-width:96%}' +
+        '.t3d-bar button,.t3d-bar select{font-size:15px;border:0;background:#eef4f3;border-radius:16px;padding:5px 10px;cursor:pointer;color:#17252a}' +
+        '.t3d-bar input{width:clamp(70px,22vw,170px)}';
+      document.head.appendChild(st);
+    }
+    const host = map.getDiv();
+    const root = document.createElement('div'); root.className = 't3d-root';
+    root.innerHTML = '<div class="t3d-toast"></div>' +
+      '<div class="t3d-card"><img alt=""><div class="t3d-info"><div class="t3d-idx"></div><b></b><div class="t3d-time"></div><div class="t3d-note"></div></div></div>' +
+      '<div class="t3d-bar"><button data-a="prev">⏮</button><button data-a="play">⏸</button><button data-a="next">⏭</button>' +
+      '<input type="range" min="0" max="1000" value="0"><select><option value="0.6">0.6×</option><option value="1" selected>1×</option><option value="1.8">1.8×</option></select>' +
+      '<button data-a="exit">✕</button></div>';
+    host.appendChild(root);
+    const q = function (s) { return root.querySelector(s); };
+    const card = q('.t3d-card'), img = q('.t3d-card img'), toast = q('.t3d-toast'), range = q('input'), sel = q('select'), playBtn = q('[data-a=play]');
+
+    const saved = { center: map.getCenter().toJSON(), zoom: map.getZoom(), tilt: map.getTilt ? (map.getTilt() || 0) : 0, heading: map.getHeading ? (map.getHeading() || 0) : 0 };
+    const savedGesture = map.get('gestureHandling');
+    map.setOptions({ gestureHandling: 'none', keyboardShortcuts: false });
+
+    const dot = new google.maps.Marker({ map: map, zIndex: 999, clickable: false,
+      icon: { path: google.maps.SymbolPath.CIRCLE, scale: 9, fillColor: '#f59e0b', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 3 } });
+    const trail = new google.maps.Polyline({ map: map, strokeColor: '#f59e0b', strokeWeight: 5, strokeOpacity: 0.95, clickable: false });
+
+    let T = 0, playing = true, speed = 1, last = performance.now(), raf = 0, alive = true, shown = -1;
+    function show(i) {
+      const p = pts[i];
+      q('.t3d-idx').textContent = '第 ' + (i + 1) + ' / ' + pts.length + ' 站';
+      q('.t3d-info b').textContent = p.name;
+      q('.t3d-time').textContent = p.timeStr;
+      q('.t3d-note').textContent = p.note;
+      if (p.photo) { img.src = p.photo; img.style.display = ''; } else { img.removeAttribute('src'); img.style.display = 'none'; }
+      shown = i;
+    }
+    function render() {
+      const s = camAt(T);
+      try { map.moveCamera(s.cam); } catch (e) { map.setCenter(s.cam.center); map.setZoom(Math.round(s.cam.zoom)); }
+      dot.setPosition(s.pos);
+      const path = pts.slice(0, s.i + 1).map(function (p) { return { lat: p.lat, lng: p.lng }; });
+      path.push(s.pos); trail.setPath(path);
+      if (s.dwell && shown !== s.i) show(s.i);
+      card.classList.toggle('on', s.dwell && s.u > 0.04 && s.u < 0.97);
+      toast.textContent = s.dwell ? '' : '前往：' + pts[s.i + 1].name;
+      toast.classList.toggle('on', !s.dwell);
+      range.value = Math.round(T / total * 1000);
+    }
+    function setPlaying(v) { playing = v; playBtn.textContent = v ? '⏸' : '▶'; }
+    function frame(now) {
+      if (!alive) return;
+      const dt = Math.min(100, now - last); last = now;
+      if (playing) T += dt * speed;
+      if (T >= total - 1) { T = total - 1; setPlaying(false); }
+      render();
+      raf = requestAnimationFrame(frame);
+    }
+    function go(k) { k = Math.max(0, Math.min(pts.length - 1, k)); T = dwellStart(k) + 1; shown = -1; }
+    function stop() {
+      if (!alive) return; alive = false; cancelAnimationFrame(raf);
+      root.remove(); dot.setMap(null); trail.setMap(null);
+      map.setOptions({ gestureHandling: savedGesture || 'auto', keyboardShortcuts: true });
+      try { map.moveCamera(saved); } catch (e) { map.setCenter(saved.center); map.setZoom(saved.zoom); }
+      if (opts.onExit) opts.onExit();
+    }
+    root.addEventListener('click', function (e) {
+      const a = e.target && e.target.getAttribute && e.target.getAttribute('data-a');
+      if (!a) return;
+      const s = camAt(T);
+      if (a === 'exit') stop();
+      else if (a === 'play') { if (T >= total - 1) { T = 0; shown = -1; } setPlaying(!playing); }
+      else if (a === 'prev') go(s.dwell ? (s.u > 0.2 ? s.i : s.i - 1) : s.i);
+      else if (a === 'next') go(s.i + 1);
+    });
+    range.addEventListener('input', function () { T = range.value / 1000 * total; shown = -1; });
+    sel.addEventListener('change', function () { speed = parseFloat(sel.value) || 1; });
+    render();
+    raf = requestAnimationFrame(frame);
+    return { stop: stop };
+  }
 
   async function download(name, content, type) {
     const blob = new Blob([content], { type });
