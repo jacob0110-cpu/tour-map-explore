@@ -230,6 +230,7 @@
         <div class="btns">
           <button class="primary" id="pickPhotos">選擇照片</button>
           <button id="pickCsv">匯入 CSV</button>
+          <button id="insertStop">＋ 插入景點</button>
           <button id="clearData">清空</button>
         </div>
         <input type="file" id="photoInput" multiple accept="image/*,.heic,.HEIC,.heif,.jpg,.JPG,.jpeg" hidden>
@@ -482,6 +483,10 @@
         const liSpan = document.querySelector(`.stop[data-i="${i}"] .name span:first-child`);
         if (liSpan) liSpan.textContent = newName || s.name;
       });
+      nameInput.addEventListener('change', () => {
+        const k = (s.customName || '').trim().toLowerCase();
+        if (k && stops.some((o, j) => j !== i && (o.customName || '').trim().toLowerCase() === k)) refresh(false);
+      });
       nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.target.blur(); });
 
       card.querySelector('textarea').addEventListener('input', (e) => {
@@ -677,12 +682,36 @@
     arr.forEach((p) => {
       const last = out[out.length - 1];
       if (thr > 0 && last && haversine(last, p) <= thr) last.members.push(p);
-      else out.push({ 
-        name: p.name, customName: p.customName, fileUrl: p.fileUrl, 
-        date: p.date, lat: p.lat, lon: p.lon, members: [p] 
-      });
+      else out.push({ name: p.name, customName: p.customName, members: [p] });
     });
-    stops = out;
+
+    // 自訂名稱相同 → 合併成同一點（保留第一次出現的順序位置）
+    const byName = new Map(), merged = [];
+    out.forEach((s) => {
+      const k = (s.customName || '').trim().toLowerCase();
+      if (k && byName.has(k)) byName.get(k).members.push(...s.members);
+      else { if (k) byName.set(k, s); merged.push(s); }
+    });
+
+    merged.forEach((s) => {
+      const ms = s.members, head = ms[0];
+      if (ms.length > 1) {
+        // 說明與補充相片統一收進第一個成員，避免合併後遺失
+        const note = ms.map((m) => m.note || '').filter((v, i, a) => v && a.indexOf(v) === i).join('\n');
+        ms.forEach((m) => { m.note = note; });
+        if (!head.extraPhotos) head.extraPhotos = [];
+        ms.slice(1).forEach((m) => { (m.extraPhotos || []).forEach((u) => head.extraPhotos.push(u)); m.extraPhotos = []; });
+      }
+      const real = ms.find((m) => !m.manual && !m.noLoc) || head;   // 手動插入/無定位者不決定座標
+      const withUrl = ms.find((m) => m.fileUrl);
+      const withDate = ms.find((m) => m.date && !m.manual) || ms.find((m) => m.date);
+      s.lat = real.lat; s.lon = real.lon;
+      s.fileUrl = withUrl ? withUrl.fileUrl : null;
+      s.date = withDate ? withDate.date : null;
+      s.customName = ms.map((m) => m.customName).find(Boolean) || '';
+    });
+    stops = merged;
+    points = merged.reduce((acc, s) => acc.concat(s.members), []);
   }
 
   function refresh(fit) {
@@ -711,7 +740,8 @@
       li.dataset.i = i;
       
       const cls = i === 0 ? 'first' : (i === stops.length - 1 && stops.length > 1 ? 'last' : '');
-      const extra = s.members.length > 1 ? `<span class="tag">${s.members.length} 張</span>` : '';
+      const cnt = s.members.filter((m) => !m.manual).length;
+      const extra = cnt > 1 ? `<span class="tag">${cnt} 張</span>` : '';
       
       const dName = s.customName || s.name; 
       const thumbHtml = s.fileUrl ? `<div class="thumb" style="background-image: url('${s.fileUrl}')"></div>` : `<div class="thumb">📍</div>`;
@@ -723,6 +753,7 @@
           <span style="overflow:hidden; text-overflow:ellipsis;">${esc(dName)}</span>
           ${extra} 
           <span class="edit-btn" title="修改地點名稱">✏️</span>
+          <span class="edit-btn add-photo" title="上傳照片到此景點">📷</span>
         </div>` +
         `<div class="meta">${fmtDate(s.date)}</div><div class="meta place-line"></div></div>` +
         `<button class="x" title="移除此點" aria-label="移除此點">×</button>`;
@@ -741,6 +772,12 @@
           s.members.forEach(p => p.customName = newName.trim()); 
           refresh(false); 
         }
+      });
+
+      li.querySelector('.add-photo').addEventListener('click', (e) => {
+        e.stopPropagation();
+        photoTarget = s;
+        stopPhotoInput.click();
       });
 
       li.addEventListener('dragstart', (e) => { dragFrom = i; li.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(i)); });
@@ -787,6 +824,76 @@
       openInfo(i);
     }
   }
+
+  /* ---------- 插入景點、對指定景點上傳照片 ---------- */
+  let photoTarget = null;
+  const stopPhotoInput = document.createElement('input');
+  stopPhotoInput.type = 'file'; stopPhotoInput.multiple = true; stopPhotoInput.hidden = true;
+  stopPhotoInput.accept = 'image/*,.heic,.HEIC,.heif,.jpg,.JPG,.jpeg';
+  document.body.appendChild(stopPhotoInput);
+  stopPhotoInput.onchange = async (e) => {
+    const fs = Array.from(e.target.files), s = photoTarget;
+    e.target.value = ''; photoTarget = null;
+    if (fs.length && s) await addPhotosToStop(s, fs);
+  };
+
+  async function addPhotosToStop(s, files) {
+    const name = s.customName || s.name;
+    if (!(s.customName || '').trim()) { setStatus('請先為此景點取一個名稱（✏️），照片才能歸到同一點。', true); return; }
+    const res = new Array(files.length);
+    let done = 0;
+    await pool(files, 4, async (f, i) => {
+      let gps = null, date = null;
+      if (window.exifr) {
+        try {
+          const [g, m] = await Promise.all([exifr.gps(f).catch(() => null), exifr.parse(f, ['DateTimeOriginal', 'CreateDate']).catch(() => null)]);
+          if (g && typeof g.latitude === 'number' && typeof g.longitude === 'number') gps = g;
+          const raw = m && (m.DateTimeOriginal || m.CreateDate);
+          if (raw) { const d = new Date(raw); if (!isNaN(d)) date = d; }
+        } catch (e) { }
+      }
+      res[i] = { f, gps, date, fileUrl: await makeThumb(f) };
+      setStatus(`處理照片中… ${++done} / ${files.length}`);
+    });
+    const note = s.members[0].note || '';
+    let at = points.indexOf(s.members[s.members.length - 1]) + 1;
+    res.forEach((r) => {
+      points.splice(at++, 0, {
+        name: r.f.name, customName: name, date: r.date,
+        lat: r.gps ? r.gps.latitude : s.lat, lon: r.gps ? r.gps.longitude : s.lon,
+        fileUrl: r.fileUrl, note, extraPhotos: [], noLoc: !r.gps
+      });
+    });
+    setStatus(`✅ 已將 ${res.length} 張照片加入「${name}」。`, false, true);
+    refresh(false);
+  }
+
+  if ($('insertStop')) $('insertStop').onclick = async () => {
+    const name = (prompt('請輸入要插入的景點名稱\n（會插入在目前選取的景點之後；沒選取則加到最後）：') || '').trim();
+    if (!name) return;
+    const after = (activeIdx >= 0 && stops[activeIdx]) ? stops[activeIdx] : stops[stops.length - 1];
+    let lat = null, lon = null, geocoded = false;
+    if (mapReady && window.google && google.maps.Geocoder) {
+      try {
+        const r = await new google.maps.Geocoder().geocode({ address: name, bounds: map.getBounds() || undefined });
+        const loc = r.results && r.results[0] && r.results[0].geometry.location;
+        if (loc) { lat = loc.lat(); lon = loc.lng(); geocoded = true; }
+      } catch (e) { }
+    }
+    if (!geocoded) {
+      if (mapReady) { const c = map.getCenter(); lat = c.lat(); lon = c.lng(); }
+      else if (after) { lat = after.lat; lon = after.lon; }
+      else { setStatus('請先載入地圖或照片，才能插入景點。', true); return; }
+    }
+    if ($('orderSel')) $('orderSel').value = 'manual';
+    const np = { name: '(新景點)', customName: name, date: null, lat, lon, fileUrl: null, note: '', extraPhotos: [], manual: true };
+    const at = after ? points.indexOf(after.members[after.members.length - 1]) + 1 : points.length;
+    points.splice(at, 0, np);
+    refresh(false);
+    const idx = stops.findIndex((s) => s.members.includes(np));
+    if (idx >= 0) focusStop(idx, true);
+    setStatus(geocoded ? `✅ 已插入「${name}」（依名稱定位）。可按 📷 上傳照片。` : `已插入「${name}」，但查無此地名，暫放在地圖中心；上傳含 GPS 的照片後會自動修正位置。`, !geocoded, geocoded);
+  };
 
   /* ---------- 景點辨識 ---------- */
   const POI_TYPES = ['tourist_attraction', 'museum', 'art_gallery', 'park', 'zoo', 'aquarium', 'amusement_park',
@@ -1054,7 +1161,7 @@
       list.push({
         name: p.name, customName: p.customName,
         date: p.date ? p.date.toISOString() : null,
-        lat: p.lat, lon: p.lon, note: p.note,
+        lat: p.lat, lon: p.lon, note: p.note, manual: !!p.manual, noLoc: !!p.noLoc,
         thumb: p.fileUrl ? await toDataUrl(p.fileUrl) : null,
         extra: (await Promise.all((p.extraPhotos || []).map(toDataUrl))).filter(Boolean)
       });
@@ -1083,7 +1190,7 @@
             lon: p.lon,
             note: p.note || '',
             fileUrl: p.thumb || null,
-            extraPhotos: Array.isArray(p.extra) ? p.extra : []
+            extraPhotos: Array.isArray(p.extra) ? p.extra : [], manual: !!p.manual, noLoc: !!p.noLoc
           }));
         }
         refresh(true);
