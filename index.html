@@ -1214,7 +1214,7 @@
     e.target.value = '';
   };
 
-  if($('htmlExportBtn')) $('htmlExportBtn').onclick = () => {
+  if($('htmlExportBtn')) $('htmlExportBtn').onclick = async () => {
     if (!stops.length) { setStatus('沒有資料可以匯出。', true); return; }
     const apiKey = getKey();
     if (!apiKey) { setStatus('請先設定 Google Maps API Key。', true); return; }
@@ -1231,6 +1231,14 @@
       };
     });
 
+    setStatus('匯出互動地圖中（含縮圖）…');
+    for (let i = 0; i < stops.length; i++) {
+      const urls = [];
+      stops[i].members.forEach((m) => { if (m.fileUrl) urls.push(m.fileUrl); });
+      (stops[i].members[0].extraPhotos || []).forEach((u) => urls.push(u));
+      exportStops[i].photos = (await Promise.all(urls.slice(0, 8).map(toDataUrl))).filter(Boolean);
+    }
+
     const mode = $('routeSel') ? $('routeSel').value : 'straight';
     const htmlContent = `<!DOCTYPE html>
 <html lang="zh-TW"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1244,7 +1252,9 @@
   .iw-note { background: #fff7e6; padding: 8px; border-radius: 6px; margin: 8px 0; font-size: 13px; color: #92400e; border: 1px dashed #fcd34d; }
   .place { margin-top: 8px; padding-top: 8px; border-top: 1px solid #d5dedc; }
   a { color: #0f766e; text-decoration: none; }
-  .floating-title { position: absolute; top: 12px; left: 120px; background: rgba(255,255,255,0.9); padding: 8px 16px; border-radius: 8px; font-weight: 700; color: #0f766e; z-index: 5; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
+  .iw-photo-grid { display: flex; gap: 4px; overflow-x: auto; margin-bottom: 8px; }
+  .iw-photo { height: 80px; width: 80px; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
+  .floating-title { position: absolute; bottom: 28px; left: 12px; max-width: calc(100% - 90px); background: rgba(255,255,255,0.9); padding: 8px 16px; border-radius: 8px; font-weight: 700; color: #0f766e; z-index: 5; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
 </style></head>
 <body><div id="map"></div>
 <div class="floating-title">🗺️ ${esc(tripName)}</div>
@@ -1252,6 +1262,7 @@
   const stops = ${JSON.stringify(exportStops).replace(/</g, '\u003c')};
   const routeMode = '${mode}';
   const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const photoGrid = (s) => (s.photos && s.photos.length) ? '<div class="iw-photo-grid">' + s.photos.map((u) => '<img class="iw-photo" src="' + u + '">').join('') + '</div>' : '';
   function initMap() {
     const map = new google.maps.Map(document.getElementById('map'), { mapTypeControl: true, fullscreenControl: true });
     const infoWin = new google.maps.InfoWindow(); const bounds = new google.maps.LatLngBounds();
@@ -1264,7 +1275,7 @@
         icon: { path: google.maps.SymbolPath.CIRCLE, scale: 14, fillColor: isFirst ? '#15803d' : (isLast ? '#c2410c' : '#0f766e'), fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 2.5 }
       });
       m.addListener('click', () => {
-        let content = '<div class="gm-iw"><b>' + (i + 1) + '. ' + esc(s.name) + '</b><div class="muted">時間：' + s.timeStr + '</div>';
+        let content = '<div class="gm-iw">' + photoGrid(s) + '<b>' + (i + 1) + '. ' + esc(s.name) + '</b><div class="muted">時間：' + s.timeStr + '</div>';
         if (s.note) content += '<div class="iw-note">' + esc(s.note).replace(/\\n/g, '<br>') + '</div>';
         if (s.placeHtml) content += '<div class="place">' + s.placeHtml + '</div>';
         content += '</div>';
@@ -1274,13 +1285,33 @@
     if (stops.length === 1) { map.setCenter({ lat: stops[0].lat, lng: stops[0].lon }); map.setZoom(15); } 
     else if (stops.length > 1) { map.fitBounds(bounds, 60); }
     if (stops.length > 1) {
-      new google.maps.Polyline({ path: stops.map(s=>({lat: s.lat, lng: s.lon})), map, strokeColor: '#0f766e', strokeWeight: 5 });
+      const style = { map, strokeColor: '#0f766e', strokeWeight: 5, strokeOpacity: 0.9 };
+      const straight = new google.maps.Polyline(Object.assign({ path: stops.map(s => ({ lat: s.lat, lng: s.lon })) }, style));
+      if (routeMode !== 'straight') {
+        const ds = new google.maps.DirectionsService(), lines = [];
+        let pending = 0, failed = false;
+        for (let a = 0; a < stops.length - 1; a += 9) {
+          const seg = stops.slice(a, Math.min(a + 9, stops.length - 1) + 1);
+          pending++;
+          ds.route({
+            origin: { lat: seg[0].lat, lng: seg[0].lon },
+            destination: { lat: seg[seg.length - 1].lat, lng: seg[seg.length - 1].lon },
+            waypoints: seg.slice(1, -1).map(s => ({ location: { lat: s.lat, lng: s.lon }, stopover: false })),
+            travelMode: routeMode
+          }, (res, st) => {
+            if (st === 'OK') lines.push(new google.maps.Polyline(Object.assign({ path: res.routes[0].overview_path }, style)));
+            else failed = true;
+            if (--pending === 0) { if (failed) lines.forEach(l => l.setMap(null)); else straight.setMap(null); }
+          });
+        }
+      }
     }
   }
-<\/script><script async defer src="https://maps.googleapis.com/maps/api/js?key=${apiKey}&callback=initMap&libraries=places&language=zh-TW"><\/script>
+<\/script><script async defer src="https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&callback=initMap&language=zh-TW&loading=async"><\/script>
 </body></html>`;
     const safeTitle = tripName.replace(/[\\/:*?"<>|]/g, '_');
-    download(safeTitle + '_互動地圖.html', htmlContent, 'text/html;charset=utf-8;');
+    await download(safeTitle + '_互動地圖.html', htmlContent, 'text/html;charset=utf-8;');
+    setStatus('✅ 互動地圖已匯出。', false, true);
   };
 
   if($('listBtn')) $('listBtn').onclick = () => {
@@ -1353,12 +1384,19 @@
   }
   if($('routeSel')) $('routeSel').addEventListener('change', renderOut);
 
-  function download(name, content, type) {
+  async function download(name, content, type) {
     const blob = new Blob([content], { type });
+    const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if (isIOS && navigator.canShare && window.File) {
+      try {
+        const file = new File([blob], name, { type: blob.type });
+        if (navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: name }); return; }
+      } catch (e) { if (e && e.name === 'AbortError') return; }
+    }
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a'); a.href = url; a.download = name;
     document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
 
   if($('kmlBtn')) $('kmlBtn').onclick = () => {
