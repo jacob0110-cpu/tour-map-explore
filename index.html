@@ -25,11 +25,12 @@
     font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
     color: var(--ink); background: var(--bg); font-size: 14px; line-height: 1.5;
   }
-  .app { display: grid; grid-template-columns: 420px 1fr; height: 100%; }
+  .app { display: grid; grid-template-columns: 480px 1fr; height: 100%; }
   .side {
     background: var(--panel); border-right: 1px solid var(--line);
-    display: flex; flex-direction: column; min-height: 0; z-index: 20;
+    display: flex; flex-direction: column; min-height: 0; z-index: 20; overflow-y: auto;
   }
+  .side > * { flex-shrink: 0; }
   .side-head { padding: 16px 18px 12px; border-bottom: 1px solid var(--line); }
   .side-head h1 { margin: 0 0 2px; font-size: 18px; font-weight: 700; }
   .side-head p { margin: 0; color: var(--ink-soft); font-size: 12px; }
@@ -61,12 +62,13 @@
   .controls select { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); }
   .controls .wide { grid-column: 1 / -1; }
 
-  .list-wrap { flex: 1; min-height: 0; overflow-y: auto; }
+  /* 剛好容納 3 個景點欄位（每列約 96px），更多景點在框內捲動 */
+  .list-wrap { flex: none; height: 304px; overflow-y: auto; border-bottom: 1px solid var(--line); }
   .stops { list-style: none; margin: 0; padding: 4px 0; }
   
   .stop {
-    display: grid; grid-template-columns: 28px 44px 1fr auto; gap: 10px; align-items: center;
-    padding: 8px 18px; cursor: pointer; border-left: 3px solid transparent; background: #fff;
+    display: grid; grid-template-columns: 28px 76px 1fr auto; gap: 12px; align-items: center;
+    padding: 10px 18px; cursor: pointer; border-left: 3px solid transparent; background: #fff;
   }
   .stop:hover { background: #f3f8f7; }
   .stop.active { background: #fff7e6; border-left-color: var(--focus); }
@@ -81,9 +83,9 @@
   .num.last { background: var(--end); }
   
   .thumb {
-    width: 44px; height: 44px; border-radius: 6px; background-size: cover; background-position: center; 
+    width: 76px; height: 76px; border-radius: 8px; background-size: cover; background-position: center; 
     background-color: #e9efee; border: 1px solid var(--line);
-    display: flex; align-items: center; justify-content: center; color: var(--ink-soft); font-size: 18px;
+    display: flex; align-items: center; justify-content: center; color: var(--ink-soft); font-size: 26px;
   }
   
   .stop .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; }
@@ -149,7 +151,7 @@
   
   .dp-photos { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
   .dp-photo-wrap { position: relative; }
-  .dp-photo { width: 64px; height: 64px; border-radius: 6px; object-fit: cover; border: 1px solid var(--line); }
+  .dp-photo { width: 84px; height: 84px; border-radius: 6px; object-fit: cover; border: 1px solid var(--line); }
   .dp-photo-x { 
     position: absolute; top: -4px; right: -4px; background: #b91c1c; color: #fff; 
     border-radius: 50%; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center;
@@ -211,13 +213,24 @@
   .dp-star { position: absolute; left: 3px; top: 1px; font-size: 14px; pointer-events: none; }
   .dp-hint { font-size: 12px; color: var(--ink-soft); margin: 6px 0 2px; }
   .dp-photo[data-pick] { cursor: pointer; }
+  .thumb, .dp-photo, .iw-photo { touch-action: manipulation; cursor: zoom-in; }
+  #photoViewer { position: fixed; inset: 0; z-index: 5000; background: rgba(0,0,0,.93); display: none; flex-direction: column; }
+  #photoViewer.on { display: flex; }
+  .pv-bar { display: flex; align-items: center; gap: 12px; padding: 10px 14px; color: #fff; flex-shrink: 0; }
+  .pv-title { font-weight: 700; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pv-info { font-size: 12px; opacity: .75; }
+  .pv-close { background: rgba(255,255,255,.18); color: #fff; border: 0; border-radius: 50%; width: 36px; height: 36px; font-size: 18px; padding: 0; }
+  .pv-stage { flex: 1; min-height: 0; overflow: auto; display: flex; align-items: center; justify-content: center; -webkit-overflow-scrolling: touch; }
+  .pv-stage img { max-width: 100%; max-height: 100%; object-fit: contain; cursor: zoom-in; }
+  #photoViewer.pv-full .pv-stage { display: block; }
+  #photoViewer.pv-full .pv-stage img { max-width: none; max-height: none; cursor: zoom-out; }
   @media (max-width: 820px) {
     /* 手機：整頁固定為一個螢幕高度，上方地圖、下方控制區整塊可捲動 */
     .app { grid-template-columns: 1fr; grid-template-rows: 42vh minmax(0, 1fr); height: 100vh; height: 100dvh; }
     .mapcol { order: -1; height: auto; min-height: 0; }
     .side { border-right: none; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
     .side > * { flex-shrink: 0; }
-    .list-wrap { flex: none; max-height: none; overflow: visible; }
+    .list-wrap { flex: none; height: auto; max-height: none; overflow: visible; }
     /* 右側遊記面板在手機改為全螢幕，從下方滑出 */
     .detail-panel { position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100%; z-index: 1000;
       transform: translateY(100%); box-shadow: none; border-left: none; }
@@ -242,6 +255,7 @@
         <div class="btns">
           <button class="primary" id="pickPhotos">選擇照片</button>
           <button id="pickCsv">匯入 CSV</button>
+          <button id="dirBtn" title="連結存放原始照片的資料夾，3D 導覽與匯出時改用原檔的高解析度（電腦版 Chrome／Edge）">📁 原始照片資料夾</button>
           <button id="insertStop">＋ 插入景點</button>
           <button id="clearData">清空</button>
         </div>
@@ -297,6 +311,7 @@
         <button id="listBtn">📝 匯出 TXT</button>
         <button id="csvBtn">下載 CSV</button>
         <button id="kmlBtn">下載 KML</button>
+        <button id="gpxBtn" title="可匯入 Garmin、Strava、Komoot、Gaia GPS、Google Earth 等">下載 GPX</button>
         <button id="printBtn">📷 列印截圖</button>
       </div>
       
@@ -469,7 +484,7 @@
       const star = (u) => (showRep && s.fileUrl === u) ? '<span class="dp-star">⭐</span>' : '';
       const cls = (u) => 'dp-photo-wrap' + ((showRep && s.fileUrl === u) ? ' dp-rep' : '');
       s.members.forEach((m, mi) => {
-        if (m.fileUrl) photosHtml += `<div class="${cls(m.fileUrl)}"><img class="dp-photo" data-pick="m${mi}" src="${m.fileUrl}" title="${esc(m.name)}">${star(m.fileUrl)}</div>`;
+        if (m.fileUrl) photosHtml += `<div class="${cls(m.fileUrl)}"><img class="dp-photo" data-pid="${pidOf(m)}" data-pick="m${mi}" src="${m.fileUrl}" title="${esc(m.name)}">${star(m.fileUrl)}</div>`;
       });
       mainPoint.extraPhotos.forEach((url, pIdx) => {
         photosHtml += `<div class="${cls(url)}"><img class="dp-photo" data-pick="x${pIdx}" src="${url}"><div class="dp-photo-x" data-idx="${pIdx}">×</div>${star(url)}</div>`;
@@ -670,12 +685,12 @@
         if (r.fileUrl) {
           if (existing.fileUrl) URL.revokeObjectURL(existing.fileUrl);
           if (existing.bigUrl && existing.bigUrl !== existing.fileUrl) URL.revokeObjectURL(existing.bigUrl);
-          existing.fileUrl = r.fileUrl; existing.bigUrl = r.bigUrl;
+          existing.fileUrl = r.fileUrl; existing.bigUrl = r.bigUrl; existing.file = r.f;
         }
         if (r.gps && !existing.moved) { existing.lat = r.gps.latitude; existing.lon = r.gps.longitude; }
         if (r.date && !existing.date) existing.date = r.date;
       } else if (r.gps) {
-        points.push({ name: r.f.name, customName: '', date: r.date, lat: r.gps.latitude, lon: r.gps.longitude, fileUrl: r.fileUrl, bigUrl: r.bigUrl, note: '', extraPhotos: [] });
+        points.push({ name: r.f.name, customName: '', date: r.date, lat: r.gps.latitude, lon: r.gps.longitude, file: r.f, fileUrl: r.fileUrl, bigUrl: r.bigUrl, note: '', extraPhotos: [] });
       } else if (!noGps.includes(r.f.name)) noGps.push(r.f.name);
     });
   }
@@ -808,7 +823,8 @@
       const extra = cnt > 1 ? `<span class="tag">${cnt} 張</span>` : '';
       
       const dName = s.customName || s.name; 
-      const thumbHtml = s.fileUrl ? `<div class="thumb" style="background-image: url('${s.fileUrl}')"></div>` : `<div class="thumb">📍</div>`;
+      const srcPt = s.members.find((m) => m.fileUrl && m.fileUrl === s.fileUrl);
+      const thumbHtml = s.fileUrl ? `<div class="thumb" data-pid="${srcPt ? pidOf(srcPt) : ''}" title="連點兩下開啟原始照片" style="background-image: url('${s.fileUrl}')"></div>` : `<div class="thumb">📍</div>`;
 
       li.innerHTML =
         `<div class="num ${cls}">${i + 1}</div>` +
@@ -926,7 +942,7 @@
       points.splice(at++, 0, {
         name: r.f.name, customName: name, date: r.date,
         lat: r.gps ? r.gps.latitude : s.lat, lon: r.gps ? r.gps.longitude : s.lon,
-        fileUrl: r.fileUrl, bigUrl: r.bigUrl, note, extraPhotos: [], noLoc: !r.gps
+        file: r.f, fileUrl: r.fileUrl, bigUrl: r.bigUrl, note, extraPhotos: [], noLoc: !r.gps
       });
     });
     setStatus(`✅ 已將 ${res.length} 張照片加入「${name}」。`, false, true);
@@ -1057,7 +1073,8 @@
     s.members.forEach((m) => { if (m.fileUrl) allUrls.push(m.fileUrl); });
     (mainPoint.extraPhotos || []).forEach((u) => allUrls.push(u));
     allUrls.sort((x, y) => (y === s.fileUrl) - (x === s.fileUrl));
-    allUrls.forEach((u) => { photosHtml += `<img class="iw-photo" src="${u}">`; });
+    const urlPid = new Map(); s.members.forEach((m) => { if (m.fileUrl) urlPid.set(m.fileUrl, pidOf(m)); });
+    allUrls.forEach((u) => { photosHtml += `<img class="iw-photo" data-pid="${urlPid.get(u) || ''}" title="連點兩下開啟原始照片" src="${u}">`; });
     if (photosHtml) photosHtml = `<div class="iw-photo-grid">${photosHtml}</div>`;
     
     let noteHtml = mainPoint.note ? `<div class="iw-note">${esc(mainPoint.note).replace(/\n/g, '<br>')}</div>` : '';
@@ -1222,18 +1239,176 @@
     setStatus(moveMode ? '按住地圖上的編號圓點，拖曳到新位置即可。' : '', false, moveMode);
   };
 
+  /* ---------- 原始照片資料夾（取得更高解析度） ---------- */
+  let dirHandle = null, origIndex = null;
+  const hiCache = new Map();
+  const IMG_RE = /\.(jpe?g|png|heic|heif|webp)$/i;
+  const idbOpen = () => new Promise((res, rej) => { const r = indexedDB.open('travelmap', 1); r.onupgradeneeded = () => r.result.createObjectStore('kv'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+  async function idbGet(k) { const db = await idbOpen(); return new Promise((res, rej) => { const q = db.transaction('kv').objectStore('kv').get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
+  async function idbSet(k, v) { const db = await idbOpen(); return new Promise((res, rej) => { const tx = db.transaction('kv', 'readwrite'); tx.objectStore('kv').put(v, k); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); }); }
+  async function scanDir(h, map, depth) {
+    for await (const [name, e] of h.entries()) {
+      if (e.kind === 'file') { if (IMG_RE.test(name)) map.set(name.toLowerCase(), e); }
+      else if (depth < 5 && !name.startsWith('.')) { try { await scanDir(e, map, depth + 1); } catch (er) { } }
+    }
+  }
+  function dirLabel(granted) {
+    const b = $('dirBtn'); if (!b) return;
+    b.textContent = dirHandle ? ('📁 ' + dirHandle.name + (granted ? ' ✓' : '（點此授權）')) : '📁 原始照片資料夾';
+  }
+  async function ensureDir(ask) {
+    if (!dirHandle) return false;
+    try {
+      let st = await dirHandle.queryPermission({ mode: 'read' });
+      if (st !== 'granted' && ask) st = await dirHandle.requestPermission({ mode: 'read' });
+      dirLabel(st === 'granted');
+      if (st !== 'granted') return false;
+      if (!origIndex) { origIndex = new Map(); await scanDir(dirHandle, origIndex, 0); }
+      return true;
+    } catch (e) { return false; }
+  }
+  async function initDir() {
+    if (!window.showDirectoryPicker) return;
+    try { dirHandle = (await idbGet('photoDir')) || null; } catch (e) { dirHandle = null; }
+    if (dirHandle) await ensureDir(false);
+  }
+  if ($('dirBtn')) $('dirBtn').onclick = async () => {
+    if (!window.showDirectoryPicker) {
+      alert('此瀏覽器無法連結資料夾（需電腦版 Chrome 或 Edge）。\n不過只要這次是直接選取照片載入的，3D 導覽與匯出時也會自動用這些原始檔產生高解析度圖。');
+      return;
+    }
+    if (dirHandle && (await dirHandle.queryPermission({ mode: 'read' })) !== 'granted') {
+      const ok = await ensureDir(true);
+      setStatus(ok ? '✅ 已重新授權，找到 ' + origIndex.size + ' 張原始照片。' : '未取得資料夾授權。', !ok, ok);
+      return;
+    }
+    try {
+      const h = await window.showDirectoryPicker({ mode: 'read' });
+      dirHandle = h; origIndex = null;
+      hiCache.forEach((u) => URL.revokeObjectURL(u)); hiCache.clear();
+      await idbSet('photoDir', h).catch(() => { });
+      setStatus('掃描資料夾中…');
+      const ok = await ensureDir(true);
+      setStatus(ok ? '✅ 已連結「' + h.name + '」，找到 ' + origIndex.size + ' 張照片；之後 3D 導覽與匯出會依檔名讀取原檔。' : '無法讀取資料夾。', !ok, ok);
+    } catch (e) { if (e && e.name !== 'AbortError') setStatus('無法連結資料夾：' + e.message, true); }
+  };
+  initDir();
+
+  // 依檔名找到原始檔（本次載入的 File 優先，其次是已連結的資料夾），縮到指定最長邊
+  async function hiRes(point, size) {
+    if (!point) return null;
+    const key = (point.name || '') + '@' + size;
+    if (hiCache.has(key)) return hiCache.get(key);
+    let f = point.file || null;
+    if (!f && origIndex && point.name) {
+      const h = origIndex.get(point.name.toLowerCase());
+      if (h) { try { f = await h.getFile(); } catch (e) { } }
+    }
+    if (!f) return null;
+    try {
+      const bmp = await createImageBitmap(f);
+      const sc = Math.min(1, size / Math.max(bmp.width, bmp.height));
+      const cv = document.createElement('canvas');
+      cv.width = Math.max(1, Math.round(bmp.width * sc)); cv.height = Math.max(1, Math.round(bmp.height * sc));
+      const g = cv.getContext('2d'); g.imageSmoothingQuality = 'high';
+      g.drawImage(bmp, 0, 0, cv.width, cv.height);
+      if (bmp.close) bmp.close();
+      const blob = await new Promise((r) => cv.toBlob(r, 'image/jpeg', 0.9));
+      const u = blob ? URL.createObjectURL(blob) : null;
+      if (u) hiCache.set(key, u);
+      return u;
+    } catch (e) { return null; }
+  }
+
+  /* ---------- 連點兩下開啟原始解析度照片 ---------- */
+  let pidSeq = 0; const pidMap = new Map();
+  function pidOf(p) { if (!p._id) p._id = ++pidSeq; pidMap.set(p._id, p); return p._id; }
+  let viewerSeq = 0, viewerBlob = null;
+  function closeViewer() {
+    const v = document.getElementById('photoViewer'); if (!v) return;
+    viewerSeq++; v.classList.remove('on', 'pv-full');
+    v.querySelector('img').removeAttribute('src');
+    if (viewerBlob) { URL.revokeObjectURL(viewerBlob); viewerBlob = null; }
+  }
+  function ensureViewer() {
+    let v = document.getElementById('photoViewer'); if (v) return v;
+    v = document.createElement('div'); v.id = 'photoViewer';
+    v.innerHTML = '<div class="pv-bar"><span class="pv-title"></span><span class="pv-info"></span><button class="pv-close" aria-label="關閉">✕</button></div><div class="pv-stage"><img alt=""></div>';
+    document.body.appendChild(v);
+    v.querySelector('.pv-close').onclick = closeViewer;
+    v.addEventListener('click', (e) => { if (e.target === v || e.target.classList.contains('pv-stage')) closeViewer(); });
+    v.querySelector('img').addEventListener('click', (e) => { e.stopPropagation(); v.classList.toggle('pv-full'); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && v.classList.contains('on')) closeViewer(); });
+    return v;
+  }
+  async function openViewer(point, quickUrl) {
+    const v = ensureViewer(), img = v.querySelector('img'), info = v.querySelector('.pv-info');
+    const my = ++viewerSeq;
+    if (viewerBlob) { URL.revokeObjectURL(viewerBlob); viewerBlob = null; }
+    v.classList.remove('pv-full'); v.classList.add('on');
+    v.querySelector('.pv-title').textContent = point ? (point.customName || point.name || '') : '';
+    img.onload = null; img.src = quickUrl || '';
+    if (!point) { info.textContent = '補充相片（僅有縮圖）'; return; }
+    info.textContent = '載入原始檔中…';
+    await ensureDir(true);   // 連點是使用者操作，可順便請求資料夾授權
+    let f = point.file || null;
+    if (!f && origIndex && point.name) {
+      const h = origIndex.get(point.name.toLowerCase());
+      if (h) { try { f = await h.getFile(); } catch (e) { } }
+    }
+    if (my !== viewerSeq) return;
+    let url = null, isOrig = false;
+    if (f) {
+      if (/^image\/(jpeg|png|webp|gif|avif|bmp)$/.test(f.type)) { url = URL.createObjectURL(f); viewerBlob = url; isOrig = true; }
+      else { url = await hiRes(point, 4096); }   // HEIC 等瀏覽器無法直接顯示的格式
+    }
+    if (my !== viewerSeq) { if (viewerBlob === url && url) { URL.revokeObjectURL(url); viewerBlob = null; } return; }
+    if (!url) { info.textContent = '找不到原始檔（目前顯示縮圖）。請連結「📁 原始照片資料夾」，或重新載入照片。'; return; }
+    img.onload = () => { info.textContent = img.naturalWidth + ' × ' + img.naturalHeight + (isOrig ? '（原始檔）' : '（已縮放）') + '　點圖片切換原尺寸'; };
+    img.src = url;
+  }
+  function photoOpenFrom(e) {
+    const el = e.target && e.target.closest ? e.target.closest('.thumb, .dp-photo, .iw-photo') : null;
+    if (!el) return false;
+    let url = el.tagName === 'IMG' ? el.src : ((el.style.backgroundImage || '').match(/url\(["']?([^"')]+)["']?\)/) || [])[1];
+    const pid = parseInt(el.dataset.pid, 10) || 0;
+    if (!url && !pid) return false;
+    e.preventDefault(); e.stopPropagation();
+    openViewer(pidMap.get(pid) || null, url);
+    return true;
+  }
+  document.addEventListener('dblclick', photoOpenFrom, true);
+  let lastTap = { t: 0, el: null };   // 手機：連點兩下
+  document.addEventListener('touchend', (e) => {
+    const el = e.target && e.target.closest ? e.target.closest('.thumb, .dp-photo, .iw-photo') : null;
+    if (!el) return;
+    const now = Date.now();
+    if (lastTap.el === el && now - lastTap.t < 350) { lastTap = { t: 0, el: null }; photoOpenFrom(e); }
+    else lastTap = { t: now, el };
+  }, { passive: false, capture: true });
+
   let tour = null;
-  if ($('tourBtn')) $('tourBtn').onclick = () => {
+  if ($('tourBtn')) $('tourBtn').onclick = async () => {
     if (tour) { tour.stop(); return; }
     if (!mapReady) { setStatus('請先載入地圖。', true); return; }
     if (!stops.length) { setStatus('請先加入景點或照片。', true); return; }
-    if (infoWin) infoWin.close();
-    const list = stops.map((s) => ({
-      lat: s.lat, lon: s.lon, name: s.customName || s.name, timeStr: s.date ? fmtDate(s.date) : '',
-      note: s.members[0].note || '', photo: s.bigUrl || s.fileUrl || (s.members[0].extraPhotos || [])[0] || null
-    }));
+    const music = tourMusic(); music.start('relax');   // 在點擊當下啟動，iPhone 才允許出聲
     $('tourBtn').style.display = 'none';
-    tour = tourEngine(map, list, { onExit: () => { tour = null; $('tourBtn').style.display = ''; } });
+    await ensureDir(true);
+    if (infoWin) infoWin.close();
+    const list = [];
+    for (let i = 0; i < stops.length; i++) {
+      const s = stops[i];
+      let photo = s.bigUrl || s.fileUrl || (s.members[0].extraPhotos || [])[0] || null;
+      const src = s.members.find((m) => m.fileUrl && m.fileUrl === s.fileUrl);
+      if (src) { setStatus('讀取原始照片中… ' + (i + 1) + ' / ' + stops.length); photo = (await hiRes(src, 2000)) || photo; }
+      list.push({
+        lat: s.lat, lon: s.lon, name: s.customName || s.name, timeStr: s.date ? fmtDate(s.date) : '',
+        note: s.members[0].note || '', photo
+      });
+    }
+    setStatus('');
+    tour = tourEngine(map, list, { music, onExit: () => { tour = null; $('tourBtn').style.display = ''; } });
   };
 
   async function toDataUrl(url, limit) {
@@ -1324,13 +1499,16 @@
     });
 
     setStatus('匯出互動地圖中（含縮圖）…');
+    await ensureDir(false);
     for (let i = 0; i < stops.length; i++) {
       const urls = [];
       stops[i].members.forEach((m) => { if (m.fileUrl) urls.push(m.fileUrl); });
       (stops[i].members[0].extraPhotos || []).forEach((u) => urls.push(u));
       urls.sort((x, y) => (y === stops[i].fileUrl) - (x === stops[i].fileUrl));
       exportStops[i].photos = (await Promise.all(urls.slice(0, 8).map((u) => toDataUrl(u)))).filter(Boolean);
-      exportStops[i].photo = stops[i].bigUrl ? await toDataUrl(stops[i].bigUrl, 450000) : null;
+      const srcPt = stops[i].members.find((m) => m.fileUrl && m.fileUrl === stops[i].fileUrl);
+      const hu = srcPt ? await hiRes(srcPt, 1280) : null;
+      exportStops[i].photo = hu ? await toDataUrl(hu, 900000) : (stops[i].bigUrl ? await toDataUrl(stops[i].bigUrl, 450000) : null);
     }
 
     const mode = $('routeSel') ? $('routeSel').value : 'straight';
@@ -1439,18 +1617,23 @@
     download(safeTitle + '.csv', '\uFEFF' + csv, 'text/csv;charset=utf-8;');
   };
 
+  let poiRunning = false, poiCancel = false;
   if($('poiBtn')) $('poiBtn').onclick = async () => {
+    if (poiRunning) { poiCancel = true; setStatus('取消中…'); return; }
     if (!mapReady) { setStatus('請先設定 API Key', true); return; }
-    $('poiBtn').disabled = true;
+    poiRunning = true; poiCancel = false;
+    const btn = $('poiBtn'), oldText = btn.textContent;
+    btn.textContent = '⛔ 取消辨識';
     let done = 0; const snap = stops.slice();
     await pool(snap, 4, async (s) => {
+      if (poiCancel) return;
       const r = await lookupPlace(s);
       if (r && r.poi && !s.customName) s.members.forEach((p) => p.customName = r.poi.displayName);
-      setStatus(`辨識地點中… ${++done} / ${snap.length}`);
+      setStatus(`辨識地點中… ${++done} / ${snap.length}（可按「取消辨識」中止）`);
     });
-    $('poiBtn').disabled = false;
-    setStatus(`✅ 辨識完成！`, false, true);
-    refresh(false); 
+    btn.textContent = oldText; poiRunning = false;
+    setStatus(poiCancel ? `已取消：已辨識 ${done} / ${snap.length} 個，完成的名稱會保留。` : '✅ 辨識完成！', false, !poiCancel);
+    refresh(false);
   };
 
   if($('printBtn')) $('printBtn').onclick = () => { document.body.classList.add('is-preview'); if (mapReady) setTimeout(fitMapBounds, 150); };
@@ -1651,7 +1834,7 @@
       icon: { path: google.maps.SymbolPath.CIRCLE, scale: 9, fillColor: '#f59e0b', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 3 } });
     const trail = new google.maps.Polyline({ map: map, strokeColor: '#f59e0b', strokeWeight: 5, strokeOpacity: 0.95, clickable: false });
 
-    const music = tourMusic(); music.start('relax');
+    const music = opts.music || tourMusic(); if (!opts.music) music.start('relax');
     let rec = null, recEnding = false, T = 0, playing = true, speed = 1, last = performance.now(), raf = 0, alive = true, shown = -1;
     function show(i) {
       const p = pts[i];
@@ -1797,6 +1980,45 @@
     k += '<Placemark><name>路線</name><Style><LineStyle><color>ff766e0f</color><width>4</width></LineStyle></Style><LineString><tessellate>1</tessellate><coordinates>' + stops.map((s) => `${s.lon},${s.lat},0`).join(' ') + '</coordinates></LineString></Placemark>\n</Document></kml>';
     const safeTitle = tripName.replace(/[\\/:*?"<>|]/g, '_');
     download(safeTitle + '.kml', k, 'application/vnd.google-earth.kml+xml');
+  };
+
+  if ($('gpxBtn')) $('gpxBtn').onclick = () => {
+    if (!stops.length) { setStatus('沒有景點可以匯出。', true); return; }
+    const x = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c]));
+    const f6 = (n) => Number(n).toFixed(6);
+    const tripName = ($('tripTitle') ? $('tripTitle').value : '') || '旅遊路線';
+    let g = '<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="旅遊路線地圖" xmlns="http://www.topografix.com/GPX/1/1">\n';
+    g += '<metadata><name>' + x(tripName) + '</name><time>' + new Date().toISOString() + '</time></metadata>\n';
+    // 景點（航點）
+    stops.forEach((s, i) => {
+      const note = (s.members[0].note || '').trim();
+      g += '<wpt lat="' + f6(s.lat) + '" lon="' + f6(s.lon) + '">' +
+        (s.date ? '<time>' + s.date.toISOString() + '</time>' : '') +
+        '<name>' + x((i + 1) + '. ' + (s.customName || s.name)) + '</name>' +
+        (note ? '<desc>' + x(note) + '</desc>' : '') + '</wpt>\n';
+    });
+    // 軌跡：若地圖已畫出道路路線就沿道路，否則依景點順序連線
+    let pts = null;
+    try {
+      const acc = [];
+      (renderers || []).forEach((r) => {
+        const d = r.getDirections && r.getDirections();
+        const path = d && d.routes && d.routes[0] && d.routes[0].overview_path;
+        if (path) path.forEach((ll) => acc.push({ lat: ll.lat(), lon: ll.lng() }));
+      });
+      if (acc.length > 1 && !(lines && lines.length)) pts = acc;   // 有路段退回直線時，改用景點連線避免軌跡斷開
+    } catch (e) { pts = null; }
+    g += '<trk><name>' + x(tripName) + '</name><trkseg>\n';
+    if (pts) {
+      let prev = null;
+      pts.forEach((q) => { const k = f6(q.lat) + ',' + f6(q.lon); if (k === prev) return; prev = k; g += '<trkpt lat="' + f6(q.lat) + '" lon="' + f6(q.lon) + '"></trkpt>\n'; });
+    } else {
+      stops.forEach((s) => { g += '<trkpt lat="' + f6(s.lat) + '" lon="' + f6(s.lon) + '">' + (s.date ? '<time>' + s.date.toISOString() + '</time>' : '') + '</trkpt>\n'; });
+    }
+    g += '</trkseg></trk>\n</gpx>';
+    const safeTitle = tripName.replace(/[\\/:*?"<>|]/g, '_');
+    download(safeTitle + '.gpx', g, 'application/gpx+xml');
+    setStatus('✅ GPX 已匯出：' + stops.length + ' 個景點' + (pts ? '，軌跡沿道路路線。' : '，軌跡依景點順序連線。'), false, true);
   };
 
   const key = getKey(); if (key) loadMaps(key); else showOverlay(true);
